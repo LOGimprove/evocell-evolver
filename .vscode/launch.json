@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "MainApp",
+            "request": "launch",
+            "mainClass": "evocell.MainApp",
+            "projectName": ""
+        },
+        {
+            "type": "java",
+            "name": "Main",
+            "request": "launch",
+            "mainClass": "src.main.java.ca.search.Main",
+            "projectName": "cellular evolver_c7ddf303"
+        },
+        {
+            "type": "java",
+            "name": "Автомат Всего (JavaFX)",
+            "request": "launch",
+            "mainClass": "ca.search.Main",
+            "projectName": "cellular-automata-search",
+            "vmArgs": "--add-modules=javafx.controls"
+        }
+    ]
+}
