@@ -1,4 +1,5 @@
-<img width="1497" height="849" alt="image" src="https://github.com/user-attachments/assets/8810d6a1-6b1c-42c5-abf6-89eb6d6953f5" />
+<img width="1499" height="846" alt="image" src="https://github.com/user-attachments/assets/bd17ee11-46ed-4ac0-8b57-a2205ba4abce" />
+
 
 # evocell_evolver (Alpha)
 
