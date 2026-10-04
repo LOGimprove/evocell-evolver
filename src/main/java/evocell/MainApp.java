@@ -170,134 +170,6 @@ abstract class NodeBase implements Node {
     }
 }
 
-abstract class TreeNode extends NodeBase {
-    static final int CENTER_CHECK_INDEX = -1;
-    static final int LAST_NEIGHBOR_INDEX = 7;
-
-    @Override
-    public final Node deepCopy() {
-        return NodeCopies.deepCopy(this);
-    }
-
-    @Override
-    public final Node forStateCount(int totalStates) {
-        return NodeCopies.forStateCount(this, StateCounts.checked(totalStates));
-    }
-}
-
-final class GollyBranchNode extends TreeNode {
-    private final int checkIndex;
-    private final int targetState;
-    private final TreeNode ifTrue;
-    private final TreeNode ifFalse;
-
-    GollyBranchNode(int checkIndex, int targetState, TreeNode ifTrue, TreeNode ifFalse) {
-        if (checkIndex < CENTER_CHECK_INDEX || checkIndex > LAST_NEIGHBOR_INDEX) {
-            throw new IllegalArgumentException("Tree check index must be between -1 and 7.");
-        }
-        if (targetState < 0 || targetState >= 32) {
-            throw new IllegalArgumentException("Target state must be between 0 and 31.");
-        }
-        this.checkIndex = checkIndex;
-        this.targetState = targetState;
-        this.ifTrue = Objects.requireNonNull(ifTrue, "ifTrue");
-        this.ifFalse = Objects.requireNonNull(ifFalse, "ifFalse");
-    }
-
-    int checkIndex() {
-        return checkIndex;
-    }
-
-    int targetState() {
-        return targetState;
-    }
-
-    TreeNode ifTrue() {
-        return ifTrue;
-    }
-
-    TreeNode ifFalse() {
-        return ifFalse;
-    }
-
-    @Override
-    public int evaluate(int currentCell, int[] neighbors) {
-        Objects.requireNonNull(neighbors, "neighbors");
-        if (neighbors.length != 8) {
-            throw new IllegalArgumentException("A Moore neighborhood must contain 8 entries.");
-        }
-        int value = checkIndex == CENTER_CHECK_INDEX
-                ? currentCell : neighbors[checkIndex];
-        return (value == targetState ? ifTrue : ifFalse)
-                .evaluate(currentCell, neighbors);
-    }
-
-    @Override
-    public String toPrettyString(int indent) {
-        String padding = "  ".repeat(Math.max(0, indent));
-        return padding + "GOLLY_BRANCH(check=" + checkIndex + ", state=" + targetState
-                + ")\n" + padding + "  TRUE\n" + ifTrue.toPrettyString(indent + 2)
-                + "\n" + padding + "  FALSE\n" + ifFalse.toPrettyString(indent + 2);
-    }
-
-    @Override
-    public String toSerializedString() {
-        return serializeWithCycleGuard(() -> appendSerializedInputs(
-                "GB:" + checkIndex + ":" + targetState + " "
-                        + ifTrue.toSerializedString() + " " + ifFalse.toSerializedString()));
-    }
-
-    @Override
-    public String getName() {
-        return "Golly branch: index " + checkIndex + " is state " + targetState;
-    }
-
-    @Override
-    public List<Node> getChildren() {
-        return List.of(ifTrue, ifFalse);
-    }
-}
-
-final class GollyLeafNode extends TreeNode {
-    private final int finalState;
-
-    GollyLeafNode(int finalState) {
-        if (finalState < 0 || finalState >= 32) {
-            throw new IllegalArgumentException("Final state must be between 0 and 31.");
-        }
-        this.finalState = finalState;
-    }
-
-    int finalState() {
-        return finalState;
-    }
-
-    @Override
-    public int evaluate(int currentCell, int[] neighbors) {
-        return finalState;
-    }
-
-    @Override
-    public String toPrettyString(int indent) {
-        return "  ".repeat(Math.max(0, indent)) + "GOLLY_LEAF(state=" + finalState + ")";
-    }
-
-    @Override
-    public String toSerializedString() {
-        return serializeWithCycleGuard(() -> appendSerializedInputs("GL:" + finalState));
-    }
-
-    @Override
-    public String getName() {
-        return "Golly leaf: state " + finalState;
-    }
-
-    @Override
-    public List<Node> getChildren() {
-        return List.of();
-    }
-}
-
 final class TemporalEvaluationContext {
     private static final ThreadLocal<Context> CURRENT = new ThreadLocal<>();
 
@@ -733,6 +605,57 @@ final class CountSameNeighborsNode extends NodeBase {
     }
 }
 
+final class IsLineNode extends NodeBase {
+    @Override
+    public int evaluate(int currentCell, int[] neighbors) {
+        Objects.requireNonNull(neighbors, "neighbors");
+        if (neighbors.length != 8) {
+            throw new IllegalArgumentException("A Moore neighborhood must contain 8 entries.");
+        }
+        return evaluateWithCycleGuard(() -> {
+            boolean verticalAxis = neighbors[1] == neighbors[6] && neighbors[1] > 0;
+            boolean horizontalAxis = neighbors[3] == neighbors[4] && neighbors[3] > 0;
+            return verticalAxis || horizontalAxis ? 1 : 0;
+        });
+    }
+
+    @Override
+    public Node deepCopy() {
+        return NodeCopies.deepCopy(this);
+    }
+
+    @Override
+    public String toPrettyString(int indent) {
+        return "  ".repeat(Math.max(0, indent)) + toString();
+    }
+
+    @Override
+    public String toSerializedString() {
+        return serializeWithCycleGuard(() -> appendSerializedInputs("IS_LINE"));
+    }
+
+    @Override
+    public String getName() {
+        return "Detect matching occupied opposite neighbors";
+    }
+
+    @Override
+    public List<Node> getChildren() {
+        return List.of();
+    }
+
+    @Override
+    public Node forStateCount(int totalStates) {
+        StateCounts.checked(totalStates);
+        return NodeCopies.forStateCount(this, totalStates);
+    }
+
+    @Override
+    public String toString() {
+        return "IS_LINE()";
+    }
+}
+
 final class CountAllNeighborsNode extends NodeBase {
     @Override
     public int evaluate(int currentCell, int[] neighbors) {
@@ -1148,20 +1071,6 @@ final class NodeCopies {
             copied = copy(setNextState.valueNode(), stateCount, copies, true);
             copies.put(source, copied);
             return copied;
-        } else if (source instanceof GollyBranchNode branch) {
-            int targetState = stateCount == null
-                    ? branch.targetState()
-                    : Math.floorMod(branch.targetState(), stateCount);
-            copied = new GollyBranchNode(
-                    branch.checkIndex(),
-                    targetState,
-                    (TreeNode) copy(branch.ifTrue(), stateCount, copies, freezeStochasticNodes),
-                    (TreeNode) copy(branch.ifFalse(), stateCount, copies, freezeStochasticNodes));
-        } else if (source instanceof GollyLeafNode leaf) {
-            int finalState = stateCount == null
-                    ? leaf.finalState()
-                    : Math.floorMod(leaf.finalState(), stateCount);
-            copied = new GollyLeafNode(finalState);
         } else if (source instanceof ConstantNode constant) {
             int value = stateCount == null
                     ? constant.val()
@@ -1183,6 +1092,8 @@ final class NodeCopies {
             copied = new NeighborIsNode(neighborIs.direction(), targetState);
         } else if (source instanceof CountSameNeighborsNode) {
             copied = new CountSameNeighborsNode();
+        } else if (source instanceof IsLineNode) {
+            copied = new IsLineNode();
         } else if (source instanceof CountAllNeighborsNode) {
             copied = new CountAllNeighborsNode();
         } else if (source instanceof GetPastStateNode pastState) {
@@ -1398,13 +1309,6 @@ final class NodeFormatting {
         if (node instanceof ConstantNode constant) {
             return Integer.toString(constant.val());
         }
-        if (node instanceof GollyBranchNode branch) {
-            return "TREE_BRANCH(" + branch.checkIndex() + ", "
-                    + branch.targetState() + ")";
-        }
-        if (node instanceof GollyLeafNode leaf) {
-            return Integer.toString(leaf.finalState());
-        }
         if (node instanceof CurrentStateNode) {
             return "SELF";
         }
@@ -1419,6 +1323,9 @@ final class NodeFormatting {
         }
         if (node instanceof CountSameNeighborsNode countSameNeighbors) {
             return countSameNeighbors.toString();
+        }
+        if (node instanceof IsLineNode isLine) {
+            return isLine.toString();
         }
         if (node instanceof CountAllNeighborsNode) {
             return "COUNT_ALL_NEIGHBORS";
@@ -1568,44 +1475,101 @@ final class TreeGenerator {
         if (maxDepth < 0) {
             throw new IllegalArgumentException("maxDepth must be non-negative");
         }
-        return generateGollyTree(
-                TreeNode.CENTER_CHECK_INDEX, totalStates, random);
+        int validatedStateCount = StateCounts.checked(totalStates);
+        int dynamicDepth = random.nextInt(3, 7);
+        return grow(0, dynamicDepth, validatedStateCount);
     }
 
     Node generateSubtree() {
-        return generate(8, totalStates);
+        return generate(3);
     }
 
-    Node generateSubtreeAt(int checkIndex) {
-        if (checkIndex < TreeNode.CENTER_CHECK_INDEX
-                || checkIndex > TreeNode.LAST_NEIGHBOR_INDEX) {
-            throw new IllegalArgumentException("Tree check index must be between -1 and 7.");
+    private Node grow(int depth, int maxDepth, int stateCount) {
+        if (depth >= maxDepth
+                || (depth > 0 && random.nextDouble() < 0.35)) {
+            return randomTerminal(stateCount);
         }
-        return generateGollyTree(checkIndex, totalStates, random);
+        double nodeChoice = random.nextDouble();
+        if (nodeChoice < 0.05) {
+            return new GetPastStateNode(random.nextInt(1, 3));
+        }
+        if (nodeChoice < 0.10) {
+            return new SetNextStateNode(grow(depth + 1, maxDepth, stateCount));
+        }
+        nodeChoice = (nodeChoice - 0.10) / 0.90;
+        if (nodeChoice < 0.15) {
+            return new GetNeighborByDirectionNode(randomDirection());
+        }
+        if (nodeChoice < 0.25) {
+            return new NeighborIsNode(randomDirection(), random.nextInt(stateCount));
+        }
+        if (nodeChoice < 0.35) {
+            Node input = grow(depth + 1, maxDepth, stateCount);
+            if (!MainApp.chanceNodesEnabled()) {
+                LogicalNode logical = new LogicalNode("XOR");
+                logical.addInput(input);
+                return logical;
+            }
+            ChanceNode chance = new ChanceNode(
+                    new int[] {10, 40, 75}[random.nextInt(3)]);
+            chance.addInput(input);
+            return chance;
+        }
+        if (nodeChoice < 0.45) {
+            int min = random.nextInt(stateCount);
+            int max = random.nextInt(min, stateCount);
+            return MainApp.randomIntNodesEnabled()
+                    ? new RandomIntNode(min, max)
+                    : new ConstantNode(1);
+        }
+        if (nodeChoice < 0.55) {
+            return randomSwitchCase(depth, maxDepth, stateCount);
+        }
+        return switch (random.nextInt(5)) {
+            case 0 -> new IfNode(grow(depth + 1, maxDepth, stateCount),
+                    grow(depth + 1, maxDepth, stateCount),
+                    grow(depth + 1, maxDepth, stateCount));
+            case 1 -> new ArithmeticNode(grow(depth + 1, maxDepth, stateCount),
+                    grow(depth + 1, maxDepth, stateCount),
+                    ArithmeticNode.randomOperation(random));
+            case 2 -> new CountSameNeighborsNode();
+            case 3 -> new IsLineNode();
+            default -> randomLogicalNode(depth, maxDepth, stateCount);
+        };
     }
 
-    Node generateLeaf() {
-        return new GollyLeafNode(random.nextInt(totalStates));
+    private Node randomSwitchCase(int depth, int maxDepth, int stateCount) {
+        SwitchCaseNode switchCase = new SwitchCaseNode(new CurrentStateNode());
+        int caseCount = random.nextInt(
+                2, Math.min(4, stateCount) + 1);
+        while (switchCase.cases().size() < caseCount) {
+            int caseValue = random.nextInt(stateCount);
+            switchCase.addCase(caseValue, grow(depth + 1, maxDepth, stateCount));
+        }
+        return switchCase;
     }
 
-    public static Node generateGollyTree(
-            int checkIndex, int totalStates, java.util.Random random) {
-        int stateCount = StateCounts.checked(totalStates);
-        Objects.requireNonNull(random, "random");
-        if (checkIndex < TreeNode.CENTER_CHECK_INDEX) {
-            throw new IllegalArgumentException("Tree check index must be at least -1.");
+    private Node randomLogicalNode(int depth, int maxDepth, int stateCount) {
+        LogicalNode logical = new LogicalNode(randomLogicalOperation());
+        int inputCount = "NOT".equals(logical.logOp()) ? 1 : 2;
+        for (int index = 0; index < inputCount; index++) {
+            logical.addInput(grow(depth + 1, maxDepth, stateCount));
         }
-        if (checkIndex > TreeNode.LAST_NEIGHBOR_INDEX) {
-            return new GollyLeafNode(random.nextInt(stateCount));
-        }
-        int targetState = random.nextInt(stateCount);
-        Node ifTrue = generateGollyTree(checkIndex + 1, stateCount, random);
-        Node ifFalse = generateGollyTree(checkIndex + 1, stateCount, random);
-        return new GollyBranchNode(
-                checkIndex,
-                targetState,
-                (TreeNode) ifTrue,
-                (TreeNode) ifFalse);
+        return logical;
+    }
+
+    private Node randomTerminal(int stateCount) {
+        return switch (random.nextInt(7)) {
+            case 0 -> new ConstantNode(random.nextInt(stateCount));
+            case 1 -> new CurrentStateNode();
+            case 2 -> new NeighborIsNode(randomDirection(), random.nextInt(stateCount));
+            case 3 -> MainApp.randomIntNodesEnabled()
+                    ? new RandomIntNode(0, stateCount - 1)
+                    : new ConstantNode(1);
+            case 4 -> new GetPastStateNode(random.nextInt(1, 3));
+            case 5 -> new CountSameNeighborsNode();
+            default -> new IsLineNode();
+        };
     }
 
     public static Node deserialize(Queue<String> tokens) {
@@ -1654,6 +1618,8 @@ final class TreeGenerator {
                     values[0], parseStateToken(values[1], token));
         } else if ("COUNT_SAME".equals(token)) {
             decoded = new CountSameNeighborsNode();
+        } else if ("IS_LINE".equals(token)) {
+            decoded = new IsLineNode();
         } else if ("COUNT_ALL".equals(token)) {
             decoded = new CountAllNeighborsNode();
         } else if (token.startsWith("PAST:")) {
@@ -1661,22 +1627,6 @@ final class TreeGenerator {
                     token.substring("PAST:".length()), token, 1, 2));
         } else if ("SET_NEXT".equals(token)) {
             decoded = new SetNextStateNode(deserializeNode(tokens, depth + 1));
-        } else if (token.startsWith("GB:")) {
-            String[] values = token.substring(3).split(":", -1);
-            if (values.length != 2) {
-                throw new IllegalArgumentException(
-                        "Invalid serialized Golly branch: " + token);
-            }
-            int checkIndex = parseBoundedInteger(
-                    values[0], token, TreeNode.CENTER_CHECK_INDEX,
-                    TreeNode.LAST_NEIGHBOR_INDEX);
-            int targetState = parseBoundedInteger(values[1], token, 0, 31);
-            TreeNode ifTrue = requireTreeNode(deserializeNode(tokens, depth + 1), token);
-            TreeNode ifFalse = requireTreeNode(deserializeNode(tokens, depth + 1), token);
-            decoded = new GollyBranchNode(checkIndex, targetState, ifTrue, ifFalse);
-        } else if (token.startsWith("GL:")) {
-            decoded = new GollyLeafNode(parseBoundedInteger(
-                    token.substring(3), token, 0, 31));
         } else if (token.startsWith("CHANCE:")) {
             decoded = new ChanceNode(parseBoundedInteger(
                     token.substring("CHANCE:".length()), token, 0, 100));
@@ -1726,14 +1676,6 @@ final class TreeGenerator {
             tokens.poll();
         }
         return decoded;
-    }
-
-    private static TreeNode requireTreeNode(Node node, String token) {
-        if (node instanceof TreeNode treeNode) {
-            return treeNode;
-        }
-        throw new IllegalArgumentException(
-                "Serialized Golly branch child is not a tree node: " + token);
     }
 
     private static int parseStateToken(String value, String token) {
@@ -1794,9 +1736,6 @@ final class ExpressionMutator {
         if (ThreadLocalRandom.current().nextDouble() >= profile.rate()) {
             return copied;
         }
-        if (copied instanceof TreeNode) {
-            return pointMutation(copied);
-        }
 
         double totalWeight = profile.pointWeight() + profile.subtreeWeight()
                 + profile.shrinkWeight();
@@ -1822,9 +1761,7 @@ final class ExpressionMutator {
         List<Node> nodes = new ArrayList<>();
         collect(root, nodes, new IdentityHashMap<>());
         List<Node> mutable = nodes.stream()
-                .filter(node -> node instanceof GollyBranchNode
-                        || node instanceof GollyLeafNode
-                        || node instanceof ConstantNode
+                .filter(node -> node instanceof ConstantNode
                         || node instanceof NeighborCountNode
                         || node instanceof ArithmeticNode
                         || node instanceof LogicalNode
@@ -1839,15 +1776,7 @@ final class ExpressionMutator {
                 : mutable.get(ThreadLocalRandom.current().nextInt(mutable.size()));
 
         Node replacement;
-        if (target instanceof GollyBranchNode branch) {
-            replacement = new GollyBranchNode(
-                    branch.checkIndex(),
-                    ThreadLocalRandom.current().nextInt(totalStates),
-                    branch.ifTrue(),
-                    branch.ifFalse());
-        } else if (target instanceof GollyLeafNode) {
-            replacement = new GollyLeafNode(ThreadLocalRandom.current().nextInt(totalStates));
-        } else if (target instanceof ConstantNode constant) {
+        if (target instanceof ConstantNode constant) {
             replacement = new ConstantNode((constant.val() + 1
                     + ThreadLocalRandom.current().nextInt(totalStates - 1)) % totalStates);
         } else if (target instanceof NeighborCountNode count) {
@@ -1975,16 +1904,10 @@ final class ExpressionMutator {
             rebuilt = new GetNeighborByDirectionNode(direction.direction());
         } else if (current instanceof NeighborIsNode neighborIs) {
             rebuilt = new NeighborIsNode(neighborIs.direction(), neighborIs.targetState());
-        } else if (current instanceof GollyBranchNode branch) {
-            rebuilt = new GollyBranchNode(
-                    branch.checkIndex(),
-                    branch.targetState(),
-                    (TreeNode) replace(branch.ifTrue(), target, replacement),
-                    (TreeNode) replace(branch.ifFalse(), target, replacement));
-        } else if (current instanceof GollyLeafNode leaf) {
-            rebuilt = new GollyLeafNode(leaf.finalState());
         } else if (current instanceof CountSameNeighborsNode) {
             rebuilt = new CountSameNeighborsNode();
+        } else if (current instanceof IsLineNode) {
+            rebuilt = new IsLineNode();
         } else if (current instanceof GetPastStateNode pastState) {
             rebuilt = new GetPastStateNode(pastState.offset());
         } else if (current instanceof SetNextStateNode setNextState) {
@@ -2010,16 +1933,6 @@ final class ExpressionMutator {
     }
 
     private Node copyWithoutInputs(Node node) {
-        if (node instanceof GollyBranchNode branch) {
-            return new GollyBranchNode(
-                    branch.checkIndex(),
-                    branch.targetState(),
-                    (TreeNode) branch.ifTrue().deepCopy(),
-                    (TreeNode) branch.ifFalse().deepCopy());
-        }
-        if (node instanceof GollyLeafNode leaf) {
-            return new GollyLeafNode(leaf.finalState());
-        }
         if (node instanceof ConstantNode constant) {
             return new ConstantNode(constant.val());
         }
@@ -2040,6 +1953,9 @@ final class ExpressionMutator {
         }
         if (node instanceof CountSameNeighborsNode) {
             return new CountSameNeighborsNode();
+        }
+        if (node instanceof IsLineNode) {
+            return new IsLineNode();
         }
         if (node instanceof CountAllNeighborsNode) {
             return new CountAllNeighborsNode();
@@ -2129,30 +2045,42 @@ final class RuleChromosome {
             throw new IllegalStateException(
                     "Rule contains temporal nodes and requires past-grid context.");
         }
-        Objects.requireNonNull(neighbors, "neighbors");
-        if (neighbors.length != NEIGHBOR_COUNT) {
-            throw new IllegalArgumentException(
-                    "A Moore neighborhood must contain 8 entries.");
+
+        if (ruletable != null
+                && validatedStateCount == this.totalStates
+                && current >= 0
+                && current < this.totalStates
+                && neighbors != null
+                && neighbors.length == NEIGHBOR_COUNT) {
+            int liveCount = 0;
+            int dominantNeighbor = 0;
+            boolean validNeighborStates = true;
+            for (int neighbor : neighbors) {
+                if (neighbor < 0 || neighbor >= this.totalStates) {
+                    validNeighborStates = false;
+                    break;
+                }
+                if (neighbor > 0) {
+                    liveCount++;
+                    if (neighbor > dominantNeighbor) {
+                        dominantNeighbor = neighbor;
+                    }
+                }
+            }
+            if (validNeighborStates) {
+                int index = (current * 9 + liveCount) * this.totalStates
+                        + dominantNeighbor;
+                return ruletable[index];
+            }
         }
 
-        for (int rot = 0; rot < 4; rot++) {
-            int[] rotated = new int[NEIGHBOR_COUNT];
-            int shift = rot * 2;
-            for (int i = 0; i < NEIGHBOR_COUNT; i++) {
-                rotated[(i + shift) % NEIGHBOR_COUNT] = neighbors[i];
-            }
-
-            java.util.function.IntSupplier evaluation = () -> Math.max(
-                    0,
-                    Math.min(root.evaluate(current, rotated), validatedStateCount - 1));
-            int nextState = pastGrids == null || !temporal
-                    ? evaluation.getAsInt()
-                    : TemporalEvaluationContext.evaluate(pastGrids, cellIndex, evaluation);
-            if (nextState != current) {
-                return nextState;
-            }
-        }
-        return current;
+        // Абсолютно чистый обсчет логики нод "в лоб" без хэш-таблиц и кэша!
+        java.util.function.IntSupplier evaluation = () -> Math.max(
+                0, Math.min(root.evaluate(current, neighbors), validatedStateCount - 1));
+        
+        return pastGrids == null || !temporal
+                ? evaluation.getAsInt()
+                : TemporalEvaluationContext.evaluate(pastGrids, cellIndex, evaluation);
     }
 
     private int[] compileLiveCountDominantTable(int requiredSize) {
@@ -3517,10 +3445,8 @@ public class MainApp extends Application {
 
     private void randomizeSelectedRule() {
         evolutionRequest.incrementAndGet();
-        java.util.Random random = new java.util.Random();
-        Node newRuleRoot = TreeGenerator.generateGollyTree(-1, totalStates, random);
         RuleChromosome generatedRule =
-                new RuleChromosome(newRuleRoot, totalStates);
+                new RuleChromosome(generateRandomModuleGraph(), totalStates);
         for (int index = 0; index < WINDOW_COUNT; index++) {
             population[index].rule = generatedRule.deepCopy();
         }
@@ -3532,20 +3458,6 @@ public class MainApp extends Application {
 
     private void weaveSelectedGraph() {
         evolutionRequest.incrementAndGet();
-        if (population[selectedWindow].rule.getRootNode() instanceof TreeNode) {
-            RuleChromosome generatedRule =
-                    new RuleChromosome(generateRandomModuleGraph(), totalStates);
-            for (GridState state : population) {
-                state.rule = generatedRule.deepCopy();
-            }
-            bigViewState.rule = population[selectedWindow].rule.deepCopy();
-            refreshEditor();
-            renderPopulation();
-            renderBigView();
-            statusLabel.setText("Создано новое каноническое дерево решения.");
-            appendLog("Переплетение формульных связей заменено генерацией нового дерева Golly.");
-            return;
-        }
         ThreadLocalRandom random = ThreadLocalRandom.current();
         Node root = population[selectedWindow].rule.getRootNode();
         List<Node> activeModules = collectInputModules(root);
@@ -3636,8 +3548,88 @@ public class MainApp extends Application {
     }
 
     private Node generateRandomModuleGraph() {
-        java.util.Random random = new java.util.Random();
-        return TreeGenerator.generateGollyTree(-1, totalStates, random);
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        int moduleCount = random.nextInt(5, 8);
+        List<Node> modules = new ArrayList<>(moduleCount);
+        Node root = randomModule(random);
+        modules.add(root);
+        for (int index = 1; index < moduleCount; index++) {
+            modules.add(randomModule(random));
+        }
+
+        List<int[]> possibleConnections = new ArrayList<>();
+        for (int sourceIndex = 1; sourceIndex < moduleCount; sourceIndex++) {
+            root.addInput(modules.get(sourceIndex));
+            for (int targetIndex = 1; targetIndex < sourceIndex; targetIndex++) {
+                possibleConnections.add(new int[] {sourceIndex, targetIndex});
+            }
+        }
+
+        int desiredConnectionCount = random.nextInt(5, 11);
+        int connectionCount = moduleCount - 1;
+        while (connectionCount < desiredConnectionCount
+                && !possibleConnections.isEmpty()) {
+            int candidateIndex = random.nextInt(possibleConnections.size());
+            int[] candidate = possibleConnections.remove(candidateIndex);
+            modules.get(candidate[1]).addInput(modules.get(candidate[0]));
+            connectionCount++;
+        }
+        return root;
+    }
+
+    private Node randomModule(ThreadLocalRandom random) {
+        double nodeChoice = random.nextDouble();
+        if (nodeChoice < 0.075) {
+            return new GetPastStateNode(random.nextInt(1, 3));
+        }
+        if (nodeChoice < 0.15) {
+            return new SetNextStateNode(new RandomIntNode(0, totalStates - 1));
+        }
+        nodeChoice = (nodeChoice - 0.15) / 0.85;
+        if (nodeChoice < 0.15) {
+            return new GetNeighborByDirectionNode(TreeGenerator.randomDirection());
+        }
+        if (nodeChoice < 0.25) {
+            return new NeighborIsNode(
+                    TreeGenerator.randomDirection(), random.nextInt(totalStates));
+        }
+        if (nodeChoice < 0.35) {
+            return chanceNodesEnabled()
+                    ? new ChanceNode(random.nextInt(101))
+                    : new LogicalNode("XOR");
+        }
+        if (nodeChoice < 0.45) {
+            int min = random.nextInt(totalStates);
+            return randomIntNodesEnabled()
+                    ? new RandomIntNode(min, random.nextInt(min, totalStates))
+                    : new ConstantNode(1);
+        }
+        if (nodeChoice < 0.55) {
+            SwitchCaseNode switchCase = new SwitchCaseNode(
+                    new CurrentStateNode());
+            int firstCase = random.nextInt(totalStates);
+            switchCase.addCase(firstCase, new ConstantNode(random.nextInt(totalStates)));
+            int secondCase = (firstCase + 1 + random.nextInt(totalStates - 1)) % totalStates;
+            switchCase.addCase(secondCase, new ConstantNode(random.nextInt(totalStates)));
+            return switchCase;
+        }
+        return switch (random.nextInt(7)) {
+            case 0 -> new IfNode(
+                    new NeighborIsNode(
+                            TreeGenerator.randomDirection(), random.nextInt(totalStates)),
+                    new ConstantNode(random.nextInt(totalStates)),
+                    new ConstantNode(random.nextInt(totalStates)));
+            case 1 -> new ArithmeticNode(
+                    new ConstantNode(random.nextInt(totalStates)),
+                    new ConstantNode(random.nextInt(totalStates)),
+                    ArithmeticNode.randomOperation(random));
+            case 2 -> new LogicalNode(TreeGenerator.randomLogicalOperation());
+            case 3 -> new ConstantNode(random.nextInt(totalStates));
+            case 4 -> new NeighborIsNode(
+                    TreeGenerator.randomDirection(), random.nextInt(totalStates));
+            case 5 -> new CountSameNeighborsNode();
+            default -> new IsLineNode();
+        };
     }
 
     private void mutateSelectedBranch() {
@@ -3647,15 +3639,7 @@ public class MainApp extends Application {
             statusLabel.setText("Сначала выберите ноду графа.");
             return;
         }
-        TreeGenerator generator = new TreeGenerator(totalStates);
-        Node subtree;
-        if (selectedNode instanceof GollyBranchNode branch) {
-            subtree = generator.generateSubtreeAt(branch.checkIndex());
-        } else if (selectedNode instanceof GollyLeafNode) {
-            subtree = generator.generateLeaf();
-        } else {
-            subtree = generator.generateSubtree();
-        }
+        Node subtree = new TreeGenerator(totalStates).generateSubtree();
         try {
             population[selectedWindow].rule =
                     population[selectedWindow].rule.replace(selectedNode, subtree);
@@ -3985,23 +3969,12 @@ public class MainApp extends Application {
         private final RuleChromosome chromosome;
         private final int stateCount;
         private final boolean[] directionPositions = new boolean[NEIGHBOR_COUNT];
-        private final boolean[] exactDirectionPositions = new boolean[NEIGHBOR_COUNT];
-        private final List<java.util.Set<Integer>> branchTargetStates =
-                createBranchTargetStateSets();
         private final List<java.util.BitSet> categories = new ArrayList<>();
         private final int[] categoryRepresentatives;
         private final int[] categoryByState = new int[GOLLY_STATE_COUNT];
         private final Map<TreeDecisionKey, Integer> decisionMemo = new java.util.HashMap<>();
         private final Map<TreeNodeKey, Integer> uniqueNodes = new java.util.HashMap<>();
         private final List<TreeRecord> nodes = new ArrayList<>();
-
-        private static List<java.util.Set<Integer>> createBranchTargetStateSets() {
-            List<java.util.Set<Integer>> targetStates = new ArrayList<>(NEIGHBOR_COUNT);
-            for (int index = 0; index < NEIGHBOR_COUNT; index++) {
-                targetStates.add(new java.util.TreeSet<>());
-            }
-            return targetStates;
-        }
 
         private GollyTreeBuilder(RuleChromosome chromosome, int stateCount) {
             this.chromosome = Objects.requireNonNull(chromosome, "chromosome");
@@ -4083,27 +4056,15 @@ public class MainApp extends Application {
                 return;
             }
             if (node instanceof GetNeighborByDirectionNode direction) {
-                int index = engineDirectionIndex(direction.direction());
-                directionPositions[index] = true;
-                exactDirectionPositions[index] = true;
+                directionPositions[engineDirectionIndex(direction.direction())] = true;
             } else if (node instanceof NeighborIsNode neighborIs) {
-                int index = engineDirectionIndex(neighborIs.direction());
-                directionPositions[index] = true;
-                exactDirectionPositions[index] = true;
-            } else if (node instanceof GollyBranchNode branch
-                    && branch.checkIndex() >= 0) {
-                int index = branch.checkIndex();
-                directionPositions[index] = true;
-                branchTargetStates.get(index).add(branch.targetState());
-            } else if (node instanceof CountSameNeighborsNode) {
+                directionPositions[engineDirectionIndex(neighborIs.direction())] = true;
+            } else if (node instanceof CountSameNeighborsNode
+                    || node instanceof IsLineNode) {
                 directionPositions[1] = true;
                 directionPositions[3] = true;
                 directionPositions[4] = true;
                 directionPositions[6] = true;
-                exactDirectionPositions[1] = true;
-                exactDirectionPositions[3] = true;
-                exactDirectionPositions[4] = true;
-                exactDirectionPositions[6] = true;
             }
             for (Node dependency : NodeTraversal.dependencies(node)) {
                 collectDirectionPositions(dependency, visited);
@@ -4136,8 +4097,6 @@ public class MainApp extends Application {
                 queriedStates.add(count.searchState());
             } else if (node instanceof CountAllNeighborsNode) {
                 queriedStates.add(0);
-            } else if (node instanceof GollyBranchNode branch) {
-                queriedStates.add(branch.targetState());
             }
             for (Node dependency : NodeTraversal.dependencies(node)) {
                 collectQueriedStates(dependency, queriedStates, visited);
@@ -4169,36 +4128,10 @@ public class MainApp extends Application {
                 int[] children = new int[GOLLY_STATE_COUNT];
                 int engineIndex = GOLLY_TO_ENGINE_NEIGHBOR[neighborPosition];
                 if (directionPositions[engineIndex]) {
-                    if (exactDirectionPositions[engineIndex]) {
-                        for (int state = 0; state < GOLLY_STATE_COUNT; state++) {
-                            assignedDirections[engineIndex] = state;
-                            children[state] = buildNode(
-                                    neighborPosition + 1, counts, assignedDirections);
-                        }
-                    } else {
-                        java.util.Set<Integer> testedStates =
-                                branchTargetStates.get(engineIndex);
-                        for (int state : testedStates) {
-                            assignedDirections[engineIndex] = state;
-                            int child = buildNode(
-                                    neighborPosition + 1, counts, assignedDirections);
-                            children[state] = child;
-                        }
-                        int unmatchedState = 0;
-                        while (unmatchedState < GOLLY_STATE_COUNT
-                                && testedStates.contains(unmatchedState)) {
-                            unmatchedState++;
-                        }
-                        if (unmatchedState < GOLLY_STATE_COUNT) {
-                            assignedDirections[engineIndex] = unmatchedState;
-                            int unmatchedChild = buildNode(
-                                    neighborPosition + 1, counts, assignedDirections);
-                            for (int state = 0; state < GOLLY_STATE_COUNT; state++) {
-                                if (!testedStates.contains(state)) {
-                                    children[state] = unmatchedChild;
-                                }
-                            }
-                        }
+                    for (int state = 0; state < GOLLY_STATE_COUNT; state++) {
+                        assignedDirections[engineIndex] = state;
+                        children[state] = buildNode(
+                                neighborPosition + 1, counts, assignedDirections);
                     }
                     assignedDirections[engineIndex] = -1;
                 } else {
@@ -4493,13 +4426,6 @@ final class VisualNode extends StackPane {
     }
 
     private static String displayName(Node node) {
-        if (node instanceof GollyBranchNode branch) {
-            return branch.checkIndex() == TreeNode.CENTER_CHECK_INDEX
-                    ? "CENTER?" : "N" + branch.checkIndex() + "?";
-        }
-        if (node instanceof GollyLeafNode leaf) {
-            return Integer.toString(leaf.finalState());
-        }
         if (node instanceof ConstantNode constant) {
             return Integer.toString(constant.val());
         }
@@ -4517,6 +4443,9 @@ final class VisualNode extends StackPane {
         }
         if (node instanceof CountSameNeighborsNode) {
             return "SAME";
+        }
+        if (node instanceof IsLineNode) {
+            return "LINE";
         }
         if (node instanceof CurrentStateNode) {
             return "S";
