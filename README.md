@@ -3,47 +3,36 @@
 
 # evocell_evolver (Alpha)
 
-[English]
+A 15-pane evolutionary laboratory designed to evolve complex Cellular Automata rules using Tree-Based Genetic Programming (GP) with native Golly export support.
 
-A highly optimized Tree-Based Genetic Programming engine designed to evolve complex Cellular Automata rules with native Golly integration.
+⚠️ **Note on Language:** The user interface of this application is in Russian, but the underlying core logic, Abstract Syntax Tree (AST) formulas, and syntax nodes are fully in English (`IF`, `GET_NEIGHBOR`, logical gates, etc.).
 
-⚠️ **Note on Language:** The current user interface of the application is in Russian, but the underlying core logic, formulas, and AST nodes use standard English syntax (`IF`, `COUNT_NEIGHBORS`, etc.). English UI localization is planned for future versions.
+<p align="center">
+  <img src="preview.png" alt="evocell_evolver 15-pane interface" width="800">
+</p>
 
 ## 🚀 Key Features
-* 🧠 **Custom 2-Node Leaf Engine:** Strictly structured depth-based spatial evolution (up to 7 neighbors / 4 for Von Neumann neighborhood). No heavy branching — pure performance.
-* 💾 **Golly Integration:** Native export support! Seamlessly export your evolved rules directly into Golly (`.rule` / `.rle`) to run them in the world's leading simulator.
+* 🧠 **Rich AST Genetic Programming:** Evolve complex, nested rules using a versatile vocabulary of **15 to 20 distinct functional nodes** (conditionals, math, logic) instead of flat transition tables.
+* 💾 **Native Golly Export:** Export your evolved rules directly into Golly's `@TREE` format (`.rule` files) to run them in the world's leading simulator.
+* ⚡ **Performance:** Maintains around 30 FPS during active 15-pane parallel CPU simulation and mutation steps.
 
-## ⚠️ Important Warning for Golly Users / Важное предупреждение
-
-[English]
-If you are planning to test your exported rules in **Golly**, please follow this strict launch sequence to prevent memory overflow and application freezes:
+## ⚠️ Important Warning for Golly Users
+To prevent memory overflow and application freezes when loading heavy custom rules into Golly, follow this exact sequence:
 1. Open **Golly** and select any **standard built-in rule** (e.g., Conway's `Life`).
 2. Press **Start/Run** for a few generations to properly initialize Golly's internal memory manager.
-3. Only after that, switch the simulation to your new **custom exported rule**. 
-
-[Русский]
-Если вы собираетесь экспортировать правила в **Golly**, строго соблюдайте следующую последовательность запуска, чтобы компьютер не завис от переполнения памяти:
-1. Откройте **Golly**, выберите любое **стандартное встроенное правило** (например, классическую «Жизнь» — `Life`).
-2. Запустите симуляцию буквально на пару секунд, чтобы Golly правильно инициализировал внутренний менеджер памяти и очистил кэш.
-3. И только после этого переключайтесь на своё новое **кастомное правило**.
+3. Only after that, change the rules to your new **custom exported rule** (`A_pulki`, etc.).
 
 ## 💻 How to Run
-Make sure you have **Java 17 or higher** installed. Download the precompiled JAR file from the **Releases** section and run it:
+Make sure you have **Java 17 or higher** installed. Download the portable JAR file from the **Releases** section and run it:
 
-* **Windows/macOS:** Simply double-click the `EvoCell_Laboratory_2.0.jar` file.
-* **Linux / Terminal:** Run via command line:
 ```bash
 java -jar EvoCell_Laboratory_2.0.jar
 ```
 
----
+## 🛠️ AST Engine Specification (15-20 Supported Nodes)
+The evolutionary core builds rules using an Abstract Syntax Tree (AST) containing a robust set of 15–20 syntax and operations nodes:
 
-## 🇷🇺 Русский (Описание проекта)
-
-Высокооптимизированный движок генетического программирования (Tree-Based GP) для эволюции сложных правил клеточных автоматов с поддержкой экспорта в Golly.
-
-### 🛠️ Архитектура ядра (Core Architecture)
-Проект построен на легковесной древовидной структуре без перегруженных логических узлов:
-* **NodeBase / Leaf Concept:** Логика вычислений жестко привязана к пространственной глубине окрестности. Всего два типа нод обеспечивают колоссальную скорость работы алгоритма.
-* **RuleChromosome:** Хромосома правила, управляющая мутациями и скрещиванием пространственных деревьев.
-* **TreeGenerator:** Генератор детерминированных деревьев решений для окрестностей Фон Неймана (4 соседа) и расширенных конфигураций (до 7 соседей).
+* **Spatial Sensors:** `GET_NEIGHBOR("Direction")` (e.g., "South-East"), `SET_NEXT_STATE()`, and geometric helpers like `IS_LINE()`.
+* **Conditionals:** Full execution path routing using `IF`, `THEN`, and `ELSE`.
+* **Logical Gates:** Advanced bitwise and logical analysis via `AND`, `OR`, `XOR`, and `XNOR`.
+* **Math & Relations:** Standard arithmetic operators (`+`, `-`, `*`, `/`) and comparison nodes (`>`, `<`, `==`, `>=`, `<=`) allowing the engine to calculate density gradients, weights, and complex physics-like ballistics.
